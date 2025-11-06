@@ -1,8 +1,17 @@
 import streamlit as st
+import os
 from utils import initialize_session_state
 from agents.kp_agent import get_kp_response
+from utils.logging import init_logger, get_logger, log_message, stop_logger
 
 initialize_session_state()
+
+# Initialize logger if character exists and logger not already initialized
+if st.session_state.get("character") and not st.session_state.get("_logger_initialized", False):
+	character_name = st.session_state["character"].get("name", "Unknown")
+	init_logger(character_name, enable_print_capture=True)
+	st.session_state["_logger_initialized"] = True
+	st.session_state["_log_file"] = get_logger().log_file if get_logger() else None
 
 # Sidebar configuration
 with st.sidebar:
@@ -62,17 +71,7 @@ with st.sidebar:
 			if scene_description:
 				st.caption(scene_description)
 			
-			# Display NPCs if available
-			npcs = scene_info.get("npcs", [])
-			if npcs:
-				st.caption("NPCs:")
-				for npc in npcs:
-					if isinstance(npc, dict):
-						npc_name = npc.get("name", "Unknown")
-						npc_role = npc.get("role", "")
-						st.caption(f"  • {npc_name}" + (f" ({npc_role})" if npc_role else ""))
-					else:
-						st.caption(f"  • {npc}")
+
 		else:
 			st.warning(f"Scene '{scene_id}' not found")
 			st.caption(f"Available scenes: {', '.join(SCENES.keys())}")
@@ -101,6 +100,29 @@ with st.sidebar:
 		if debug_mode:
 			st.info("Debug mode enabled - state changes will be shown in main view")
 	
+	# Logging section
+	if st.session_state.get("character"):
+		st.divider()
+		st.subheader("📝 Chat Log")
+		logger = get_logger()
+		if logger and logger.log_file:
+			st.success(f"✅ Logging enabled")
+			st.caption(f"Log file: `{logger.log_file}`")
+			try:
+				with open(logger.log_file, 'r', encoding='utf-8') as f:
+					log_content = f.read()
+					st.download_button(
+						"💾 Download Log",
+						log_content,
+						file_name=os.path.basename(logger.log_file),
+						mime="text/markdown",
+						use_container_width=True
+					)
+			except Exception as e:
+				st.error(f"Error reading log: {e}")
+		else:
+			st.info("💡 Logging will start automatically when you create a character")
+	
 	# Restart button
 	st.divider()
 	if st.button("🔄 Restart Conversation", use_container_width=True, type="secondary"):
@@ -108,6 +130,12 @@ with st.sidebar:
 		st.session_state["messages"] = []
 		# Reset scene to arrival
 		st.session_state["current_scene"] = "arrival_village"
+		# Restart logger
+		if st.session_state.get("character"):
+			stop_logger()
+			character_name = st.session_state["character"].get("name", "Unknown")
+			init_logger(character_name, enable_print_capture=True)
+			st.session_state["_log_file"] = get_logger().log_file if get_logger() else None
 		st.success("Conversation restarted!")
 		st.rerun()
 
@@ -127,35 +155,34 @@ if "current_scene" not in st.session_state:
 else:
 	# Fix old scene IDs that may exist in session state
 	old_scene = st.session_state["current_scene"]
-	scene_mapping = {
-		"arrival": "arrival_village",
-		"exploration_inn": "leddbetter_house",
-		"exploration_village": "exploration_day",
-		"exploration_church": "beacon_discovery",
-		"final_ritual": "festival_night"
-	}
-	if old_scene in scene_mapping:
-		new_scene = scene_mapping[old_scene]
-		st.session_state["current_scene"] = new_scene
+	from agents.scenes import SCENES
+	# If scene ID doesn't exist in SCENES, reset to arrival_village
+	if old_scene not in SCENES:
+		st.session_state["current_scene"] = "arrival_village"
 		st.rerun()  # Rerun to apply the fix immediately
 
 # Generate opening scene if this is the first time (no messages yet)
 character_name = character.get("name", "Investigator")
 if len(st.session_state["messages"]) == 0:
-	opening_scene = f"""The long-distance bus groans and shudders as it comes to an abrupt halt. Rain patters steadily against the windows, and the dim interior lights flicker uncertainly. Outside, it is just past noon—clouds cloak the sun and lend everything a pale, uneasy glow.
+	opening_scene = f"""
+The taxi hums steadily along the winding mountain road, its wipers smearing rain across the windshield. You sit in the back seat beside your suitcase—the sum of your old life—on your way to a new beginning in Arkham. The driver, a thin man in a worn cap, hasn’t spoken much. Only the low hiss of the tires and the rhythmic drone of the engine fill the silence.
 
-Through the fogged glass, you can make out the shape of a small village in the distance: **Ashbury**. The driver turns to address the few remaining passengers with an apologetic expression.
+As the car climbs higher, fog begins to roll in—thick, gray, and slow-moving. The landscape outside grows sparse: no other cars, no houses, only black trees leaning under the weight of the mist. Then, with a sputter and a cough, the engine falters.
 
-"Sorry folks," he says, his voice carrying a hint of weariness. "The engine's acting up. We won't be able to continue until later, and the nearest mechanic is in Ashbury. I'll take you there—it's just a short walk. There's an inn where you can wait this out."
+“Damn it,” the driver mutters, steering the vehicle to the roadside. He tries the ignition twice, then sighs. “No luck. We’re near a village called **Emberhead**—just over that hill.” He gestures towards faint lights in the mist. “You’ll have to see if you can find a place to stay the night there. I’ll go and look for a mechanic.”
 
-You gather your belongings as the driver leads the way. The path to Ashbury is muddy and uneven, with an unsettling quiet that seems to press in around you. As you approach the village, a few windows show dim light, but the place feels...empty. Too quiet for a place that should have life.
+You step out into the damp air, clutching your coat tighter. The road behind you disappears into the mist. Ahead, through the drizzle, the village of **Emberhead** waits—silent except for the distant crackle of unseen fires.
 
-Welcome to Ashbury, {character_name}. The day stretches ahead, and something tells you this is not going to be a simple stopover.
+Your journey to a new life has taken an unexpected detour.
 
-*What would you like to do?*"""
+*What would you like to do, {character_name}?*
+"""
 
 	# Add opening scene to messages
 	st.session_state["messages"].append({"role": "assistant", "content": opening_scene})
+	
+	# Log opening scene
+	log_message("assistant", opening_scene, st.session_state.get("current_scene", "arrival_village"))
 
 # Display chat history
 for msg in st.session_state["messages"]:
@@ -175,6 +202,9 @@ if user_text:
 	st.session_state["messages"].append({"role": "user", "content": user_text})
 	with st.chat_message("user", avatar=user_avatar):
 		st.markdown(user_text)
+	
+	# Log user message
+	log_message("user", user_text, st.session_state.get("current_scene", "arrival_village"))
 
 	# Get KP response using LangGraph agent
 	with st.chat_message("assistant"):
@@ -197,6 +227,9 @@ if user_text:
 				
 				st.markdown(kp_reply)
 				st.session_state["messages"].append({"role": "assistant", "content": kp_reply})
+				
+				# Log keeper response
+				log_message("assistant", kp_reply, new_scene)
 				
 				# Update character state (especially SAN if changed)
 				if updated_character and updated_character.get("san") != character.get("san"):

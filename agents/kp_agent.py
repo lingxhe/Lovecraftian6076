@@ -217,8 +217,8 @@ def build_global_system_prompt(character: Dict[str, Any], current_scene: str) ->
 **Player Action Handling (Critical):**
 - Never invent or describe the player's words or actions.
 - Do not elaborate on, embellish, or expand the player's replies, nor add any internal thoughts or psychological descriptions for the player character.
-- If instructions are vague, ask for clarification (e.g., "What do you say?" "How do you do it?").
 - Only narrate NPC reactions, environment, and consequences.
+- **If instructions are vague or unclear, ask for clarification (e.g., "What do you say?" "How do you do it?"). Otherwise, simply narrate what happens without ending with a question. Trust the player will respond with their next action.**
 
 **Tool Usage Workflow:**
 When player action requires a check:
@@ -244,7 +244,7 @@ When player action requires a check:
 
 **Scene Transitions:**
 Available transitions from current scene: {', '.join(get_available_transitions(current_scene))}
-Common scene IDs: arrival, exploration_inn, exploration_village, exploration_church, final_ritual, ending
+Common scene IDs: arrival_village, leddbetter_house, village_hall, ruined_church, ritual, ending
 
 **Skill Check Guidelines:**
 - SPOT: Finding clues, noticing details, observing surroundings
@@ -264,15 +264,20 @@ Common scene IDs: arrival, exploration_inn, exploration_village, exploration_chu
 - After calling roll_dice, incorporate the result naturally into your narration without mentioning "I rolled" or "the dice show"
 
 **Scene Transition Rules:**
-- When the player's actions suggest moving to a new location, call the change_scene tool with the appropriate target_scene_id
+- **CRITICAL:** When the player's actions clearly indicate moving to a new location or entering a different scene, you MUST call the change_scene tool BEFORE continuing narration
+- Examples: Player accepts invitation to stay at May's house → call change_scene("leddbetter_house") immediately
+- Player enters village hall → call change_scene("village_hall") immediately
+- Player goes to ruined church → call change_scene("ruined_church") immediately
 - The change_scene tool will automatically update the scene context and prompt for you
 - After calling change_scene, continue narrating from the new scene's perspective
+- **Do NOT wait for the player to explicitly ask for a scene change - if their actions clearly indicate entering a new location, call the tool immediately**
 
 **General Rules:**
 - Stay in character as the KP and guide the story forward
 - Be creative but stay within the CoC horror atmosphere
 - Follow the scene-specific prompts provided to you for guidance on style and key elements
-- Remember: You have tools available. Use them directly, don't describe using them."""
+- Remember: You have tools available. Use them directly, don't describe using them.
+"""
 
 	return global_prompt
 
@@ -284,7 +289,7 @@ def keeper_node(state: AgentState) -> AgentState:
 	messages: List[BaseMessage] = state["messages"]
 	character: Dict[str, Any] = state["character"]
 	api_key: str = state.get("api_key", "")
-	current_scene: str = state.get("current_scene", "entrance")
+	current_scene: str = state.get("current_scene", "arrival_village")
 	
 	# Fallback to environment variable if not provided in state
 	if not api_key:
@@ -321,9 +326,11 @@ def keeper_node(state: AgentState) -> AgentState:
 	prompt_messages = [system_msg] + messages
 	
 	# Generate response with tool calling capability
+	print(f"\n🤖 [LLM INVOKE] Calling LLM with {len(prompt_messages)} messages (scene: {current_scene})")
 	response = llm.invoke(prompt_messages)
 	
 	# Check if tools were called
+	print(f"📥 [LLM RESPONSE] Received response, has tool_calls: {bool(response.tool_calls)}")
 	new_messages = messages + [response]
 	next_action = "continue"
 	next_scene = current_scene
@@ -332,13 +339,21 @@ def keeper_node(state: AgentState) -> AgentState:
 	san_loss_amount = 0
 	
 	if response.tool_calls:
+		print(f"\n🔧 [TOOL CALLS] Detected {len(response.tool_calls)} tool call(s)")
 		for tool_call in response.tool_calls:
 			tool_name = tool_call["name"]
 			tool_args = tool_call["args"]
 			
+			print(f"  📌 [TOOL] {tool_name} called with args: {tool_args}")
+			
 			if tool_name == "roll_dice":
 				# Execute dice roll
+				skill_name = tool_args.get("skill_name", "Unknown")
+				difficulty = tool_args.get("difficulty", "normal")
+				skill_value = tool_args.get("skill_value", 50)
+				print(f"    🎲 [ROLL_DICE] Skill: {skill_name}, Difficulty: {difficulty}, Value: {skill_value}")
 				dice_result = roll_dice.invoke(tool_args)
+				print(f"    🎲 [ROLL_DICE] Result: {dice_result[:150]}...")  # Print first 150 chars
 				
 				# Store dice result in state
 				dice_results = state.get("dice_results", [])
@@ -362,10 +377,12 @@ def keeper_node(state: AgentState) -> AgentState:
 				current_san = character.get("san", 60)
 				san_loss = tool_args.get("san_loss", 1)
 				
+				print(f"    🧠 [SAN_CHECK] Current SAN: {current_san}, SAN Loss: {san_loss}")
 				san_result = san_check.invoke({
 					"current_san": current_san,
 					"san_loss": san_loss
 				})
+				print(f"    🧠 [SAN_CHECK] Result: {san_result[:150]}...")  # Print first 150 chars
 				
 				# Calculate actual SAN loss from result
 				# Parse the result to get actual loss
@@ -393,10 +410,12 @@ def keeper_node(state: AgentState) -> AgentState:
 				# Execute scene change
 				target_scene = tool_args.get("target_scene_id", current_scene)
 				
+				print(f"    🔄 [CHANGE_SCENE] Transitioning from '{current_scene}' to '{target_scene}'")
 				scene_result = change_scene.invoke({
 					"target_scene_id": target_scene,
 					"current_scene_id": current_scene
 				})
+				print(f"    🔄 [CHANGE_SCENE] Result: {scene_result}")
 				
 				# Check if scene change was successful (starts with ✓)
 				if scene_result.startswith("✓"):
@@ -404,6 +423,7 @@ def keeper_node(state: AgentState) -> AgentState:
 					current_scene = target_scene
 					next_scene = target_scene
 					next_action = "change_scene"
+					print(f"    ✅ [CHANGE_SCENE] Scene successfully changed to '{target_scene}'")
 					
 					# Update system prompt with new scene information
 					# Rebuild system prompt with new scene
@@ -427,8 +447,10 @@ def keeper_node(state: AgentState) -> AgentState:
 		# Re-invoke to get response after tool execution
 		# If scene was changed via change_scene tool, system_msg already updated with new scene info
 		# Otherwise use original system_msg
+		print(f"\n🔄 [LLM RE-INVOKE] Getting final response after tool execution (scene: {current_scene})")
 		final_response = llm.invoke([system_msg] + new_messages)
 		new_messages.append(final_response)
+		print(f"✅ [FINAL RESPONSE] Generated final response")
 
 	return {
 		"messages": new_messages,
@@ -447,6 +469,10 @@ def scene_node(state: AgentState) -> AgentState:
 	next_scene = state.get("next_scene", current_scene)
 	scene_history = state.get("scene_history", [])
 	
+	print(f"\n🎬 [SCENE_NODE] Processing scene transition")
+	print(f"    Current scene: {current_scene}")
+	print(f"    Next scene: {next_scene}")
+	
 	if next_scene != current_scene:
 		# Update scene
 		scene_history = scene_history + [current_scene]
@@ -454,6 +480,8 @@ def scene_node(state: AgentState) -> AgentState:
 		# Add scene transition message
 		scene_info = SCENES.get(next_scene, {})
 		scene_name = scene_info.get("name", next_scene)
+		
+		print(f"    ✅ [SCENE_NODE] Scene transition confirmed: {current_scene} → {next_scene} ({scene_name})")
 		
 		transition_msg = AIMessage(
 			content=f"\n\n*[Scene Transition: You have entered {scene_name}]*\n"
@@ -468,6 +496,8 @@ def scene_node(state: AgentState) -> AgentState:
 			"next_action": "continue",
 			"next_scene": next_scene
 		}
+	else:
+		print(f"    ℹ️ [SCENE_NODE] No scene change (already in {current_scene})")
 	
 	return state
 
@@ -478,10 +508,14 @@ def route_after_keeper(state: AgentState) -> str:
 	"""Route decision after keeper node"""
 	next_action = state.get("next_action", "continue")
 	
+	print(f"\n🔀 [ROUTE] Routing after keeper, next_action: {next_action}")
+	
 	if next_action == "change_scene":
+		print(f"    → Routing to scene_transition node")
 		return "scene_transition"
 	else:
 		# After tool execution (roll_dice, san_check) or continue, end
+		print(f"    → Routing to END")
 		return END
 
 
@@ -533,6 +567,11 @@ def get_kp_response(
 	Returns:
 		KP's response as string
 	"""
+	print(f"\n🚀 [GET_KP_RESPONSE] Starting KP response generation")
+	print(f"    User input: {user_input[:100]}...")
+	print(f"    Current scene: {current_scene}")
+	print(f"    Character: {character.get('name', 'Unknown')}")
+	
 	# Convert chat history to LangChain messages
 	lc_messages = []
 	for msg in chat_history:
@@ -559,7 +598,14 @@ def get_kp_response(
 		"next_scene": current_scene
 	}
 	
+	print(f"\n📊 [GRAPH] Invoking LangGraph with state")
+	print(f"    Initial scene: {state['current_scene']}")
+	
 	result = graph.invoke(state)
+	
+	print(f"\n📊 [GRAPH] Graph execution completed")
+	print(f"    Final scene: {result.get('current_scene', 'N/A')}")
+	print(f"    Next action: {result.get('next_action', 'N/A')}")
 	
 	# Extract the last assistant message(s)
 	messages = result["messages"]

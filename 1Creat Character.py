@@ -45,7 +45,7 @@ st.info("""
 
 **Timeline:** A sweltering summer in the 1920s. You are an ordinary traveler bound for Arkham (profession optional: professor, doctor, journalist, etc.).
 
-**Opening Scene:** Your long-distance bus breaks down, diverting you to a remote village where a sinister ritual is quietly taking shape.
+**Opening Scene:** Your long-distance taxi breaks down, diverting you to a remote village where a sinister ritual is quietly taking shape.
 
 Prepare your investigator below and step into the unknown.
 """)
@@ -248,7 +248,11 @@ if submitted:
 			selected_avatar,
 			background_story
 		)
-		st.success("Character saved.")
+		st.success("Character saved. Redirecting to KP Chat...")
+		# Redirect to KP Chat page
+		import time
+		time.sleep(1)  # Brief pause to show success message
+		st.switch_page("pages/2_KP_Chat.py")
 
 if st.session_state["character"]:
 	st.subheader("Current Character")
