@@ -1,56 +1,47 @@
-## CoC 单人模组 · LLM KP（基础框架）
+## CoC Solo · LLM Keeper
+
+当前主版本采用 **Next.js + Tailwind CSS** 前端 + **FastAPI** 后端，替代最早的 Streamlit UI。所有 Keeper 逻辑仍位于 `agents/` 目录。
 
 ### 本地运行
 
-1. 创建并激活虚拟环境（可选，推荐）
 ```bash
-python -m venv venv
-# Windows:
-venv\Scripts\activate
-# Mac/Linux:
-source venv/bin/activate
-```
-
-2. 安装依赖：
-```bash
+# 1. 安装 Python 依赖
 pip install -r requirements.txt
+pip install -r requirements-web.txt
+
+# 2. 启动 FastAPI 后端
+python api_server.py
+# http://localhost:8000
+
+# 3. 另开终端启动 Next.js 前端
+cd web
+npm install
+npm run dev
+# http://localhost:3000
 ```
 
-3. 设置 OpenAI API Key（三种方式任选一种）：
+也可直接运行 `start-web.bat`（Windows）或 `./start-web.sh`（macOS/Linux）。
 
-**方式1：使用 .env 文件（推荐，最简单）**
-- 复制 `.env.example` 文件并重命名为 `.env`
-- 编辑 `.env` 文件，将 `your-api-key-here` 替换为你的实际 API Key
-- 格式：`OPENAI_API_KEY=sk-...`
+### 项目结构
 
-**方式2：Windows PowerShell（临时，当前会话有效）**
-```powershell
-$env:OPENAI_API_KEY="your-api-key-here"
+```
+agents/            # LangGraph Keeper、场景与工具
+utils/             # 会话状态、Markdown 日志
+api_server.py      # FastAPI：供 Next.js 调用
+web/               # Next.js 14 + Tailwind 前端
+  ├── app/chat     # Keeper 聊天
+  ├── app/create-character
+  ├── app/api      # 代理 Render 后端
+  ├── store        # Zustand 状态管理
+  └── lib          # API 客户端
 ```
 
-**方式3：Windows 系统环境变量（永久）**
-- 右键"此电脑" -> "属性" -> "高级系统设置"
-- 点击"环境变量"
-- 在"用户变量"中点击"新建"
-- 变量名：`OPENAI_API_KEY`
-- 变量值：你的 API Key（sk-开头）
-- 确定后重启终端
+### 部署
 
-4. 启动应用（多页结构）：
-```bash
-streamlit run 1Creat Character.py
-```
+- **前端**：Vercel（`web/` 目录，环境变量 `PYTHON_BACKEND_URL`）
+- **后端**：Render / Railway / Fly.io（`uvicorn api_server:app --port $PORT`，环境变量 `ALLOWED_ORIGINS`）
+- 详细步骤见 `deploy-vercel-render.md`
 
-5. 浏览器会自动打开；若未自动打开，访问：`http://localhost:8501`
+### OpenAI API Key
 
-### 说明
-- 采用 Streamlit 多页结构：`1Creat Character.py` 为第一页（Create Character），`pages/` 目录放其它页面。
-- `1Creat Character.py`：创建角色（Name, Strength, Dexterity, HP, SAN），保存到 `st.session_state`。
-- `pages/2_KP_Chat.py`：KP 对话（使用 LangGraph + LLM Agent）。
-- LangGraph Agent 架构位于 `agents/kp_agent.py`。
-
-### 获取 OpenAI API Key
-1. 访问 https://platform.openai.com/api-keys
-2. 登录或注册账户
-3. 点击"Create new secret key"
-4. 复制生成的 API Key（格式为 sk-...）
+前端侧栏输入框仅存储在浏览器本地。也可在部署的 Python 后端通过 `OPENAI_API_KEY` 环境变量提供默认值。
