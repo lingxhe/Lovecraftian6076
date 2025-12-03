@@ -674,4 +674,55 @@ body {
   }
 }
 
+.parchment-entry {
+  position: relative;
+  border-radius: 1.25rem;
+  padding: 1.75rem;
+  border: 1px solid rgba(120, 63, 4, 0.25);
+  background: linear-gradient(135deg, rgba(251, 244, 227, 0.9), rgba(241, 219, 181, 0.85));
+  box-shadow:
+    0 20px 35px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.parchment-entry::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='%23c9ab7d' fill-opacity='0.15' d='M0 119h1v1H0zM119 0h1v1h-1z'/%3E%3C/svg%3E");
+  opacity: 0.45;
+  mix-blend-mode: multiply;
+  border-radius: inherit;
+}
+
+.parchment-entry-user {
+  border-color: rgba(120, 63, 4, 0.4);
+}
+
+.parchment-entry-keeper {
+  border-color: rgba(65, 37, 3, 0.4);
+  background: linear-gradient(135deg, rgba(245, 232, 202, 0.95), rgba(235, 210, 168, 0.88));
+}
+
+.parchment-page {
+  background-image: url("/lib/pic/paper-texture-top-view.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+/* 3D Dice overlay – ensure canvas stretches to full overlay */
+#dice-box-3d-container {
+  width: 100%;
+  height: 100%;
+}
+
+#dice-box-3d-container canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
 
