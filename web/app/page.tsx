@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { SparklesCore } from "./ui/sparkles";
 
 interface Book {
   id: string;
@@ -144,7 +145,19 @@ export default function HomePage() {
       {/* Book Section */}
       <section className="min-h-screen flex items-center justify-center relative py-36">
         <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-b from-slate-950/60 via-slate-950/75 to-slate-950/90 backdrop-blur-[2px]" />
+          <div className="absolute inset-0 bg-gradient-to-b from-slate-950/60 via-emerald-950/75 to-slate-950/90 backdrop-blur-[2px]" />
+          <div className="w-full absolute inset-0 h-screen">
+            <SparklesCore
+              id="tsparticlesfullpage"
+              background="transparent"
+              minSize={0.6}
+              maxSize={2}
+              speed={2}
+              particleDensity={50}
+              className="w-full h-full"
+              particleColor="#FFFFFF"
+            />
+          </div>
           {bookOpened && selectedBookId === "alone-against-flames" && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="relative w-[60vw] max-w-3xl aspect-[3/4] opacity-0 animate-book-backdrop-in">

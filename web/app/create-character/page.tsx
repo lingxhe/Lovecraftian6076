@@ -4,28 +4,79 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Dice1, Save, Upload, X } from "lucide-react";
 import { useStore, Character } from "@/store/useStore";
+import { Dice3DOverlay } from "../chat/Dice3DOverlay";
 
-const AVATAR_OPTIONS = [
-  "🧑‍🔬",
-  "🧑‍🎓",
-  "🧑‍⚕️",
-  "🧑‍🏫",
-  "🧑‍💼",
-  "🧑‍🔧",
-  "🧙",
-  "🕵️",
-  "👮",
-  "🎩",
-  "👤",
-  "🧛",
+interface PresetCharacter {
+  emoji: string;
+  name: string;
+  str: number;
+  int: number;
+  pow: number;
+  spot: number;
+  listen: number;
+  stealth: number;
+  charm: number;
+  background_story: string;
+}
+
+const PRESET_CHARACTERS: PresetCharacter[] = [
+  {
+    emoji: "🧑‍🔬",
+    name: "Dr. Eleanor Vance",
+    str: 40,
+    int: 70,
+    pow: 70,
+    spot: 60,
+    listen: 55,
+    stealth: 40,
+    charm: 45,
+    background_story: "A brilliant researcher from Miskatonic University, Dr. Vance specializes in anomalous phenomena and ancient civilizations. She was traveling to Arkham to investigate reports of strange occurrences in the region. Her analytical mind and scientific training make her well-suited for uncovering hidden truths, though her physical capabilities are limited."
+  },
+  {
+    emoji: "🧑‍💼",
+    name: "Marcus Blackwood",
+    str: 65,
+    int: 60,
+    pow: 55,
+    spot: 50,
+    listen: 45,
+    stealth: 40,
+    charm: 70,
+    background_story: "A successful businessman from Boston, Marcus was on his way to Arkham to finalize a property acquisition deal. His sharp business acumen and persuasive skills have served him well in the corporate world, but he's about to discover that some things cannot be bought or negotiated. His journey takes an unexpected turn when his taxi breaks down near a remote village."
+  },
+  {
+    emoji: "🕵️",
+    name: "Detective James Corrigan",
+    str: 60,
+    int: 60,
+    pow: 60,
+    spot: 70,
+    listen: 60,
+    stealth: 60,
+    charm: 50,
+    background_story: "A former police detective turned private investigator, Corrigan has seen his share of strange cases. He was traveling to Arkham to follow up on a missing person case that had led him to suspect something far more sinister than a simple disappearance. His keen observational skills and experience with criminal investigations make him a formidable investigator, though he may find himself facing forces beyond normal comprehension."
+  },
+  {
+    emoji: "🧑‍🏫",
+    name: "Professor Arthur Whitlock",
+    str: 40,
+    int: 80,
+    pow: 60,
+    spot: 55,
+    listen: 60,
+    stealth: 35,
+    charm: 55,
+    background_story: "A distinguished professor of anthropology and folklore at Miskatonic University, Professor Whitlock has spent decades studying ancient myths and legends. He was en route to Arkham to deliver a lecture on regional folklore when his journey was interrupted. His extensive knowledge of myths and legends may prove invaluable, though his academic pursuits have left him somewhat unprepared for physical danger."
+  }
 ];
 
 export default function CreateCharacterPage() {
   const router = useRouter();
   const { character, setCharacter } = useStore();
   const isCustomAvatar = character?.avatar?.startsWith("data:image") ?? false;
+  const [selectedPreset, setSelectedPreset] = useState<PresetCharacter | null>(null);
   const [selectedAvatar, setSelectedAvatar] = useState(
-    isCustomAvatar && character ? character.avatar : character?.avatar || "🧑‍🔬"
+    isCustomAvatar && character ? character.avatar : character?.avatar || PRESET_CHARACTERS[0].emoji
   );
   const [customAvatar, setCustomAvatar] = useState<string | null>(
     isCustomAvatar && character ? character.avatar : null
@@ -44,6 +95,8 @@ export default function CreateCharacterPage() {
   const [luckRolls, setLuckRolls] = useState<number[]>([]);
   const [rollCount, setRollCount] = useState(0);
   const [bestLuck, setBestLuck] = useState(character?.luck || 50);
+  const [showDice3D, setShowDice3D] = useState(false);
+  const [diceValuesHistory, setDiceValuesHistory] = useState<number[][]>([]);
 
   const coreTotal = str + intAttr + pow;
   const skillBudget = intAttr * 4;
@@ -52,14 +105,21 @@ export default function CreateCharacterPage() {
 
   const rollLuck = () => {
     if (rollCount >= 3) return;
-    const dice = Array.from({ length: 3 }, () => Math.floor(Math.random() * 6) + 1);
-    const result = dice.reduce((sum, value) => sum + value, 0) * 5;
+    setShowDice3D(true);
+  };
+
+  const handleDiceResult = (diceValues: number[]) => {
+    // 3d6 * 5: 3个d6骰子的值乘以5
+    const result = diceValues.reduce((sum, value) => sum + value, 0) * 5;
     const newRolls = [...luckRolls, result];
+    const newDiceHistory = [...diceValuesHistory, diceValues];
     setLuckRolls(newRolls);
+    setDiceValuesHistory(newDiceHistory);
     setRollCount((prev) => prev + 1);
     // Always set bestLuck to the maximum value from all rolls
     const maxRoll = Math.max(...newRolls);
     setBestLuck(maxRoll);
+    setShowDice3D(false);
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -92,7 +152,26 @@ export default function CreateCharacterPage() {
 
   const handleRemoveCustomAvatar = () => {
     setCustomAvatar(null);
-    setSelectedAvatar("🧑‍🔬");
+    setSelectedAvatar(PRESET_CHARACTERS[0].emoji);
+    setSelectedPreset(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleSelectPreset = (preset: PresetCharacter) => {
+    setSelectedPreset(preset);
+    setSelectedAvatar(preset.emoji);
+    setCustomAvatar(null);
+    setName(preset.name);
+    setStr(preset.str);
+    setIntAttr(preset.int);
+    setPow(preset.pow);
+    setSpot(preset.spot);
+    setListen(preset.listen);
+    setStealth(preset.stealth);
+    setCharm(preset.charm);
+    setBackgroundStory(preset.background_story);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -165,13 +244,41 @@ export default function CreateCharacterPage() {
 
         <section className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 space-y-6">
           <div>
-            <h2 className="text-xl font-semibold mb-1">Image Selection</h2>
-            <p className="text-sm text-slate-400">Choose an emoji or upload your own avatar</p>
+            <h2 className="text-xl font-semibold mb-1">Select Preset Character</h2>
+            <p className="text-sm text-slate-400">Choose a preset character or create your own</p>
+          </div>
+
+          {/* Preset Characters */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {PRESET_CHARACTERS.map((preset) => (
+              <button
+                key={preset.emoji}
+                onClick={() => handleSelectPreset(preset)}
+                className={`p-4 rounded-xl border-2 transition-all text-left ${
+                  selectedPreset?.emoji === preset.emoji && !customAvatar
+                    ? "border-amber-400 bg-amber-900/20 scale-[1.02] shadow-lg shadow-amber-900/20"
+                    : "border-slate-700 hover:border-slate-500 bg-slate-800/30"
+                }`}
+              >
+                <div className="flex items-start gap-4">
+                  <div className="text-5xl flex-shrink-0">{preset.emoji}</div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-lg font-bold text-slate-100 mb-1">{preset.name}</h3>
+                    <div className="flex flex-wrap gap-2 text-xs mb-2">
+                      <span className="px-2 py-1 rounded bg-red-900/40 text-red-200">STR {preset.str}</span>
+                      <span className="px-2 py-1 rounded bg-blue-900/40 text-blue-200">INT {preset.int}</span>
+                      <span className="px-2 py-1 rounded bg-purple-900/40 text-purple-200">POW {preset.pow}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 line-clamp-2">{preset.background_story}</p>
+                  </div>
+                </div>
+              </button>
+            ))}
           </div>
 
           {/* Custom Avatar Upload */}
-          <div className="space-y-3">
-            <label className="text-sm font-medium text-slate-300">Custom Avatar</label>
+          <div className="space-y-3 pt-4 border-t border-slate-700">
+            <label className="text-sm font-medium text-slate-300">Or Upload Custom Avatar</label>
             {customAvatar ? (
               <div className="relative inline-block">
                 <div className="relative w-24 h-24 rounded-xl overflow-hidden border-2 border-indigo-400 bg-indigo-500/20">
@@ -211,35 +318,6 @@ export default function CreateCharacterPage() {
               </div>
             )}
           </div>
-
-          {/* Emoji Options */}
-          <div className="space-y-3">
-            <label className="text-sm font-medium text-slate-300">Emoji Options</label>
-            <div className="grid grid-cols-6 gap-4">
-              {AVATAR_OPTIONS.map((emoji) => (
-                <button
-                  key={emoji}
-                  onClick={() => {
-                    setSelectedAvatar(emoji);
-                    setCustomAvatar(null);
-                    if (fileInputRef.current) {
-                      fileInputRef.current.value = "";
-                    }
-                  }}
-                  className={`p-4 rounded-xl border transition-all ${
-                    !customAvatar && selectedAvatar === emoji
-                      ? "border-indigo-400 bg-indigo-500/20 scale-105"
-                      : "border-slate-700 hover:border-slate-500"
-                  }`}
-                >
-                  <div className="text-5xl">{emoji}</div>
-                  <p className="mt-2 text-xs text-slate-400">
-                    {!customAvatar && selectedAvatar === emoji ? "Selected" : "Select"}
-                  </p>
-                </button>
-              ))}
-            </div>
-          </div>
         </section>
 
         <section className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 space-y-6">
@@ -261,26 +339,41 @@ export default function CreateCharacterPage() {
           {luckRolls.length > 0 && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {luckRolls.map((value, idx) => (
-                  <div
-                    key={idx}
-                    className={`relative rounded-xl p-4 border-2 transition-all ${
-                      value === bestLuck
-                        ? "bg-emerald-900/40 border-emerald-500 shadow-lg shadow-emerald-500/30 scale-105"
-                        : "bg-slate-800/60 border-slate-700"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-slate-400">Roll {idx + 1}</span>
-                      {value === bestLuck && (
-                        <span className="text-xs bg-emerald-500 text-white px-2 py-1 rounded-full font-semibold">
-                          Best
-                        </span>
+                {luckRolls.map((value, idx) => {
+                  // 获取对应的骰子值
+                  const rollDiceValues = diceValuesHistory[idx] || null;
+                  return (
+                    <div
+                      key={idx}
+                      className={`relative rounded-xl p-4 border-2 transition-all ${
+                        value === bestLuck
+                          ? "bg-emerald-900/40 border-emerald-500 shadow-lg shadow-emerald-500/30 scale-105"
+                          : "bg-slate-800/60 border-slate-700"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-slate-400">Roll {idx + 1}</span>
+                        {value === bestLuck && (
+                          <span className="text-xs bg-emerald-500 text-white px-2 py-1 rounded-full font-semibold">
+                            Best
+                          </span>
+                        )}
+                      </div>
+                      {rollDiceValues && rollDiceValues.length === 3 && (
+                        <div className="mb-2 text-xs text-slate-400">
+                          <span className="font-semibold">3d6: </span>
+                          {rollDiceValues.map((d, i) => (
+                            <span key={i} className="mx-1">
+                              {d}{i < rollDiceValues.length - 1 ? " + " : ""}
+                            </span>
+                          ))}
+                          <span className="ml-1">× 5</span>
+                        </div>
                       )}
+                      <p className="text-3xl font-bold text-slate-100">{value}</p>
                     </div>
-                    <p className="text-3xl font-bold text-slate-100">{value}</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-900/30 to-emerald-800/20 border border-emerald-700/50 rounded-xl">
                 <span className="text-slate-300 font-medium">Final LUCK Value:</span>
@@ -445,6 +538,14 @@ export default function CreateCharacterPage() {
         </div>
         </div>
       </section>
+
+      <Dice3DOverlay
+        show={showDice3D}
+        onClose={() => setShowDice3D(false)}
+        rollNotation="3d6"
+        onDiceResults={handleDiceResult}
+        themeColor="#B7410E"
+      />
     </div>
   );
 }

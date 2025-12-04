@@ -7,9 +7,11 @@ interface Dice3DOverlayProps {
   onClose: () => void;
   rollNotation?: string;
   onResult?: (value: number) => void;
+  onDiceResults?: (diceValues: number[]) => void;
+  themeColor?: string;
 }
 
-export function Dice3DOverlay({ show, onClose, rollNotation = "1d100", onResult }: Dice3DOverlayProps) {
+export function Dice3DOverlay({ show, onClose, rollNotation = "1d100", onResult, onDiceResults, themeColor = "#B7410E" }: Dice3DOverlayProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -27,7 +29,7 @@ export function Dice3DOverlay({ show, onClose, rollNotation = "1d100", onResult 
         box = new DiceBox({
           container: "#dice-box-3d-container",
           assetPath: "/assets/", // served from public/assets/*
-          themeColor: "#f97316",
+          themeColor: themeColor,
           lightIntensity: 1.1,
           scale: 5,
         });
@@ -36,13 +38,20 @@ export function Dice3DOverlay({ show, onClose, rollNotation = "1d100", onResult 
         if (cancelled) return;
 
         const results = await box.roll(rollNotation);
-        if (!cancelled && onResult && Array.isArray(results)) {
+        if (!cancelled && Array.isArray(results)) {
           try {
-            const total = results.reduce(
-              (sum: number, r: any) => sum + (typeof r?.value === "number" ? r.value : 0),
-              0
-            );
-            onResult(total);
+            const diceValues = results
+              .map((r: any) => (typeof r?.value === "number" ? r.value : 0))
+              .filter((v: number) => v > 0);
+            
+            if (onDiceResults) {
+              onDiceResults(diceValues);
+            }
+            
+            if (onResult) {
+              const total = diceValues.reduce((sum: number, v: number) => sum + v, 0);
+              onResult(total);
+            }
           } catch (e) {
             console.error("Dice3DOverlay parse result error:", e);
           }
@@ -62,7 +71,7 @@ export function Dice3DOverlay({ show, onClose, rollNotation = "1d100", onResult 
         }
       }
     };
-  }, [show]);
+  }, [show, rollNotation, themeColor]);
 
   if (!show) return null;
 
