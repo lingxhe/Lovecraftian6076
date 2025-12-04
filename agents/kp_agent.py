@@ -9,6 +9,7 @@ import json
 import re
 from dotenv import load_dotenv
 from agents.scenes import SCENES, get_scene_prompt, get_available_transitions, get_story_overview
+from agents.memory import compress_chat_history
 
 # Load environment variables from .env file
 load_dotenv()
@@ -228,7 +229,6 @@ When player action requires a check:
 4. Continue narrating based on the result
 
 
-
 **Do:**
 - Call the tool directly when needed
 - Incorporate results naturally into narration
@@ -242,9 +242,9 @@ When player action requires a check:
 - Exposed to madness-inducing knowledge
 - Typical SAN loss: 1 (minor), 1d3/1d4 (moderate), 1d6+ (major)
 
-**Scene Transitions:**
-Available transitions from current scene: {', '.join(get_available_transitions(current_scene))}
-Common scene IDs: arrival_village, leddbetter_house, village_hall, ruined_church, ritual, ending
+**Scene Transitions (CRITICAL):**
+- Available transitions from current scene: {', '.join(get_available_transitions(current_scene))}
+- You must treat scene changes as soon as the player clearly moves to a new location or starts interacting mainly in that new location.
 
 **Skill Check Guidelines:**
 - SPOT: Finding clues, noticing details, observing surroundings
@@ -263,14 +263,29 @@ Common scene IDs: arrival_village, leddbetter_house, village_hall, ruined_church
 - Use the correct skill name when calling roll_dice (e.g., "Spot Hidden" for SPOT checks, "Strength" for STR checks)
 - After calling roll_dice, incorporate the result naturally into your narration without mentioning "I rolled" or "the dice show"
 
-**Scene Transition Rules:**
-- **CRITICAL:** When the player's actions clearly indicate moving to a new location or entering a different scene, you MUST call the change_scene tool BEFORE continuing narration
-- Examples: Player accepts invitation to stay at May's house → call change_scene("leddbetter_house") immediately
-- Player enters village hall → call change_scene("village_hall") immediately
-- Player goes to ruined church → call change_scene("ruined_church") immediately
-- The change_scene tool will automatically update the scene context and prompt for you
-- After calling change_scene, continue narrating from the new scene's perspective
-- **Do NOT wait for the player to explicitly ask for a scene change - if their actions clearly indicate entering a new location, call the tool immediately**
+**Scene Transition Rules (for change_scene tool):**
+- **CRITICAL:** When the player's actions clearly indicate moving to a new location or entering a different scene, you MUST call the change_scene tool BEFORE continuing narration.
+- Only move to scenes that appear in the "Available scene transitions" list for the current scene.
+- Treat "walking to / going to / entering / heading for / returning to" a place as a scene change intent, not just flavor.
+- The player does **not** need to say the exact scene ID. You should map natural language places to scene IDs using your knowledge of the story.
+
+**Concrete triggers (when to call change_scene immediately):**
+- Player accepts May Ledbetter's offer and goes to or stays at May's house ⇒ call change_scene("leddbetter_house").
+- Player says they go to or enter the village hall / town office / town hall ⇒ call change_scene("village_hall").
+- Player says they go to or enter the ruined / abandoned church ⇒ call change_scene("ruined_church").
+- Player says they go to the Beacon / festival / ritual location at night for the ceremony ⇒ call change_scene("ritual").
+- From the ritual, when the story clearly reaches an epilogue / aftermath, you may move to "ending" ⇒ call change_scene("ending").
+
+**Negative examples (DO NOT change scene):**
+- Player only looks at a distant building, tower, or church from afar without going there.
+- Player asks about a place in conversation but does not go there.
+- Player remembers or dreams about another place.
+
+**Execution rules:**
+- Call change_scene as soon as you infer the scene change, then let the tools and system prompt update the context.
+- After a successful change_scene, you must narrate from the new scene's perspective and tone.
+- Do **not** ask the player "Do you want to go to X?" if they already clearly stated they go there—just change the scene.
+
 
 **General Rules:**
 - Stay in character as the KP and guide the story forward
@@ -572,9 +587,38 @@ def get_kp_response(
 	print(f"    Current scene: {current_scene}")
 	print(f"    Character: {character.get('name', 'Unknown')}")
 	
+	# Count user messages to determine if we should compress
+	# Count only non-summary messages (summary messages start with "**Summary of earlier events:**")
+	user_message_count = sum(
+		1 for msg in chat_history 
+		if msg.get("role") == "user" and not msg.get("content", "").startswith("**Summary of earlier events:**")
+	)
+	
+	# Compress chat history every 3 rounds (every 3 user messages)
+	# We compress when we have 3, 6, 9, etc. user messages (before adding the current one)
+	compressed_history = chat_history
+	if user_message_count > 0 and user_message_count % 3 == 0:
+		print(f"\n [COMPRESSION] Compressing chat history (round {user_message_count})")
+		try:
+			compressed_history = compress_chat_history(
+				chat_history=chat_history,
+				character=character,
+				current_scene=current_scene,
+				api_key=api_key,
+				min_messages_before_compress=6,  # Lower threshold for more frequent compression
+				keep_recent_messages=6,  # Keep last 6 messages (3 rounds) uncompressed
+			)
+			if len(compressed_history) < len(chat_history):
+				print(f"    ✅ Compressed from {len(chat_history)} to {len(compressed_history)} messages")
+			else:
+				print("Compression skipped (history too short or no API key)")
+		except Exception as e:
+			print(f"    ⚠️ Compression failed: {e}, using original history")
+			compressed_history = chat_history
+	
 	# Convert chat history to LangChain messages
 	lc_messages = []
-	for msg in chat_history:
+	for msg in compressed_history:
 		if msg["role"] == "user":
 			lc_messages.append(HumanMessage(content=msg["content"]))
 		elif msg["role"] == "assistant":
@@ -710,9 +754,16 @@ def get_kp_response(
 	updated_character = result.get("character", character)
 	
 	# Return response with scene info and updated character
-	return {
+	# Include compressed_history if compression occurred (so frontend can update its state)
+	return_dict = {
 		"response": final_response,
 		"current_scene": result.get("current_scene", current_scene),
 		"next_action": result.get("next_action", "continue"),
 		"character": updated_character  # Include updated character with new SAN value
 	}
+	
+	# If compression occurred, include the compressed history
+	if len(compressed_history) < len(chat_history):
+		return_dict["compressed_history"] = compressed_history
+	
+	return return_dict
