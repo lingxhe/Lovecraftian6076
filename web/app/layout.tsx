@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Cinzel, Creepster, Nosifer, MedievalSharp, Metal_Mania } from "next/font/google";
+import { Inter, Cinzel, Creepster, Nosifer, MedievalSharp, Metal_Mania, Crimson_Text, Lora, EB_Garamond } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -8,6 +8,9 @@ const creepster = Creepster({ weight: "400", subsets: ["latin"], variable: "--fo
 const nosifer = Nosifer({ weight: "400", subsets: ["latin"], variable: "--font-nosifer" });
 const medievalSharp = MedievalSharp({ weight: "400", subsets: ["latin"], variable: "--font-medievalsharp" });
 const metalMania = Metal_Mania({ weight: "400", subsets: ["latin"], variable: "--font-metal-mania" });
+const crimsonText = Crimson_Text({ weight: ["400", "600"], subsets: ["latin"], variable: "--font-crimson" });
+const lora = Lora({ subsets: ["latin"], variable: "--font-lora" });
+const ebGaramond = EB_Garamond({ subsets: ["latin"], variable: "--font-eb-garamond" });
 
 export const metadata: Metadata = {
   title: "CoC Solo · LLM KP",
@@ -20,7 +23,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="zh-CN" className={`${inter.variable} ${cinzel.variable} ${creepster.variable} ${nosifer.variable} ${medievalSharp.variable} ${metalMania.variable}`}>
+    <html lang="zh-CN" className={`${inter.variable} ${cinzel.variable} ${creepster.variable} ${nosifer.variable} ${medievalSharp.variable} ${metalMania.variable} ${crimsonText.variable} ${lora.variable} ${ebGaramond.variable}`}>
       <body className="antialiased bg-background text-foreground">{children}</body>
     </html>
   );
