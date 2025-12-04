@@ -119,6 +119,14 @@ export default function ChatPage() {
   const [diceValues, setDiceValues] = useState<{ total: number; tens: number; ones: number } | null>(null);
   const [diceNotation, setDiceNotation] = useState<string>("1d100");
   const [testRoll, setTestRoll] = useState<number | null>(null);
+  const [pendingDiceRequest, setPendingDiceRequest] = useState<{
+    type: "dice" | "san";
+    skillName?: string;
+    difficulty?: string;
+    skillValue?: number;
+    currentSan?: number;
+    sanLoss?: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!character) {
@@ -176,20 +184,48 @@ export default function ChatPage() {
 
       const assistantText = response.response;
 
-      // Detect dice roll pattern like "Roll: 73/50" and trigger center dice animation
-      const rollMatch = assistantText.match(/Roll:\s*(\d{1,3})\s*\/\s*\d{1,3}/i);
-      if (rollMatch) {
-        const total = Number(rollMatch[1]);
-        if (!Number.isNaN(total)) {
-          const tens = total === 100 ? 0 : Math.floor(total / 10) * 10;
-          const ones = total === 100 ? 0 : total % 10;
-          setDiceValues({ total, tens, ones });
-          setDiceNotation("1d100");
-          setShowDiceOverlay(true);
+      // Detect dice request markers: [DICE_REQUEST:skill_name:difficulty:skill_value]
+      const diceRequestMatch = assistantText.match(/\[DICE_REQUEST:(.+?):(.+?):(\d+)\]/);
+      if (diceRequestMatch) {
+        const skillName = diceRequestMatch[1];
+        const difficulty = diceRequestMatch[2];
+        const skillValue = parseInt(diceRequestMatch[3], 10);
+        setPendingDiceRequest({
+          type: "dice",
+          skillName,
+          difficulty,
+          skillValue,
+        });
+        // Remove the marker from the displayed message
+        const cleanedText = assistantText.replace(/\[DICE_REQUEST:.+?\]\s*\n*/g, "").trim();
+        // Only add message if there's actual content (not just the marker)
+        if (cleanedText) {
+          addMessage({ role: "assistant", content: cleanedText });
+        }
+        // If only marker, don't add message - just show the dice button
+      } else {
+        // Detect SAN check request markers: [SAN_CHECK_REQUEST:current_san:san_loss]
+        const sanRequestMatch = assistantText.match(/\[SAN_CHECK_REQUEST:(\d+):(\d+)\]/);
+        if (sanRequestMatch) {
+          const currentSan = parseInt(sanRequestMatch[1], 10);
+          const sanLoss = parseInt(sanRequestMatch[2], 10);
+          setPendingDiceRequest({
+            type: "san",
+            currentSan,
+            sanLoss,
+          });
+          // Remove the marker from the displayed message
+          const cleanedText = assistantText.replace(/\[SAN_CHECK_REQUEST:.+?\]\s*\n*/g, "").trim();
+          // Only add message if there's actual content (not just the marker)
+          if (cleanedText) {
+            addMessage({ role: "assistant", content: cleanedText });
+          }
+          // If only marker, don't add message - just show the dice button
+        } else {
+          // No dice request, just add the message normally
+          addMessage({ role: "assistant", content: assistantText });
         }
       }
-
-      addMessage({ role: "assistant", content: assistantText });
       if (response.current_scene && response.current_scene !== currentScene) {
         setCurrentScene(response.current_scene);
       }
@@ -231,6 +267,94 @@ export default function ChatPage() {
         role: "assistant",
         content: OPENING_SCENE(character.name || "Investigator"),
       });
+    }
+  };
+
+  const handleDiceRollClick = () => {
+    if (!pendingDiceRequest) return;
+    setDiceNotation("1d100");
+    setShowDiceOverlay(true);
+  };
+
+  const handleDiceResult = async (value: number) => {
+    if (!pendingDiceRequest) return;
+    
+    setShowDiceOverlay(false);
+    
+    // Format the result message based on request type
+    let resultMessage = "";
+    if (pendingDiceRequest.type === "dice") {
+      // Format: DiceResult: 73:skill_name:difficulty:skill_value
+      resultMessage = `DiceResult: ${value}:${pendingDiceRequest.skillName}:${pendingDiceRequest.difficulty}:${pendingDiceRequest.skillValue}`;
+    } else {
+      // Format: SANResult: 73:current_san:san_loss
+      resultMessage = `SANResult: ${value}:${pendingDiceRequest.currentSan}:${pendingDiceRequest.sanLoss}`;
+    }
+    
+    // Clear pending request
+    setPendingDiceRequest(null);
+    
+    // Add the result message to chat history first (for display)
+    const resultUserMessage = { role: "user" as const, content: resultMessage };
+    addMessage(resultUserMessage);
+    
+    // Send the result as a user message
+    setLoading(true);
+    try {
+      const response = await getKPResponse(
+        resultMessage,
+        character,
+        [...messages, resultUserMessage],
+        apiKey,
+        currentScene
+      );
+
+      const assistantText = response.response;
+      
+      // Check for new dice requests in the response
+      const diceRequestMatch = assistantText.match(/\[DICE_REQUEST:(.+?):(.+?):(\d+)\]/);
+      if (diceRequestMatch) {
+        const skillName = diceRequestMatch[1];
+        const difficulty = diceRequestMatch[2];
+        const skillValue = parseInt(diceRequestMatch[3], 10);
+        setPendingDiceRequest({
+          type: "dice",
+          skillName,
+          difficulty,
+          skillValue,
+        });
+        const cleanedText = assistantText.replace(/\[DICE_REQUEST:.+?\]\s*\n*/g, "").trim();
+        addMessage({ role: "assistant", content: cleanedText || assistantText });
+      } else {
+        const sanRequestMatch = assistantText.match(/\[SAN_CHECK_REQUEST:(\d+):(\d+)\]/);
+        if (sanRequestMatch) {
+          const currentSan = parseInt(sanRequestMatch[1], 10);
+          const sanLoss = parseInt(sanRequestMatch[2], 10);
+          setPendingDiceRequest({
+            type: "san",
+            currentSan,
+            sanLoss,
+          });
+          const cleanedText = assistantText.replace(/\[SAN_CHECK_REQUEST:.+?\]\s*\n*/g, "").trim();
+          addMessage({ role: "assistant", content: cleanedText || assistantText });
+        } else {
+          addMessage({ role: "assistant", content: assistantText });
+        }
+      }
+      
+      if (response.current_scene && response.current_scene !== currentScene) {
+        setCurrentScene(response.current_scene);
+      }
+      if (response.character) {
+        setCharacter(response.character);
+      }
+    } catch (error) {
+      addMessage({
+        role: "assistant",
+        content: `⚠️ Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -404,6 +528,42 @@ export default function ChatPage() {
               </div>
             </div>
           )}
+          
+          {/* Dice Roll Button - shown when there's a pending dice request */}
+          {pendingDiceRequest && (
+            <div className="max-w-4xl mx-auto mb-4">
+              <div className="rounded-2xl bg-amber-100/90 border-2 border-amber-600/60 shadow-lg px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🎲</span>
+                  <div>
+                    <p className="font-semibold text-slate-900">
+                      {pendingDiceRequest.type === "dice"
+                        ? `${pendingDiceRequest.skillName} Check Required`
+                        : "Sanity Check Required"}
+                    </p>
+                    {pendingDiceRequest.type === "dice" && (
+                      <p className="text-xs text-slate-600 mt-1">
+                        Difficulty: {pendingDiceRequest.difficulty} | Value: {pendingDiceRequest.skillValue}
+                      </p>
+                    )}
+                    {pendingDiceRequest.type === "san" && (
+                      <p className="text-xs text-slate-600 mt-1">
+                        Current SAN: {pendingDiceRequest.currentSan} | Potential Loss: {pendingDiceRequest.sanLoss}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={handleDiceRollClick}
+                  disabled={loading}
+                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-rose-500 text-slate-950 font-semibold shadow-lg shadow-amber-900/40 hover:from-amber-500 hover:to-rose-400 disabled:from-slate-500 disabled:to-slate-500 disabled:text-slate-300 disabled:cursor-not-allowed disabled:shadow-none transition-all"
+                >
+                  Roll Dice
+                </button>
+              </div>
+            </div>
+          )}
+          
           <div className="max-w-4xl mx-auto rounded-2xl bg-amber-50/85 border border-amber-900/40 shadow-[0_18px_45px_rgba(0,0,0,0.45)] backdrop-blur-sm px-6 py-5 space-y-4 text-slate-900">
             <div className="flex items-center justify-between">
               <p className="text-xs uppercase tracking-[0.3em] text-amber-900/80 font-semibold">
@@ -435,17 +595,26 @@ export default function ChatPage() {
               </button>
             </div>
           </div>
+          
           <div ref={messagesEndRef} />
         </div>
       </main>
 
       <Dice3DOverlay
         show={showDiceOverlay}
-        onClose={() => setShowDiceOverlay(false)}
+        onClose={() => {
+          setShowDiceOverlay(false);
+          // Don't clear pending request if user closes overlay without rolling
+        }}
         rollNotation={diceNotation}
         onResult={(value) => {
-          // For test rolls we record the raw d10 value
-          setTestRoll(value);
+          if (pendingDiceRequest) {
+            // Handle dice result for pending request
+            handleDiceResult(value);
+          } else {
+            // For test rolls we record the raw d10 value
+            setTestRoll(value);
+          }
         }}
       />
     </div>
