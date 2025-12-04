@@ -14,7 +14,7 @@ from agents.scenes import SCENES, get_scene_prompt, get_available_transitions, g
 load_dotenv()
 
 
-class AgentState(TypedDict):
+class AgentState(TypedDict, total=False):
 	messages: Annotated[List[BaseMessage], "Chat history"]
 	character: Dict[str, Any]
 	api_key: str
@@ -24,25 +24,25 @@ class AgentState(TypedDict):
 	next_action: str  # Keeper's decision: "continue", "roll_dice", "san_check", "change_scene"
 	next_scene: str  # Target scene if changing scenes
 	san_loss: int  # SAN loss from san_check
+	pending_dice_result: str  # Pending dice result to include in response
+	pending_san_result: str  # Pending SAN check result to include in response
 
 
 # ==================== DICE TOOL ====================
 
-@tool
-def roll_dice(skill_name: str, difficulty: str = "normal", skill_value: int = 50) -> str:
+def process_dice_result(d100: int, skill_name: str, difficulty: str, skill_value: int) -> str:
 	"""
-	Roll a skill check or attribute test.
+	Process a dice roll result and return formatted result string.
 	
 	Args:
-		skill_name: Name of the skill being tested (e.g., "Spot Hidden", "Dodge", "Strength")
-		difficulty: Difficulty level - "easy" (half value), "normal" (full value), "hard" (half value), "extreme" (fifth value)
+		d100: The actual dice roll result (1-100)
+		skill_name: Name of the skill being tested
+		difficulty: Difficulty level
 		skill_value: The character's skill or attribute value
 	
 	Returns:
-		Result string describing the dice roll outcome
+		Formatted result string
 	"""
-	d100 = random.randint(1, 100)
-	
 	# Calculate difficulty thresholds
 	if difficulty == "easy":
 		threshold = skill_value // 2
@@ -87,21 +87,18 @@ def roll_dice(skill_name: str, difficulty: str = "normal", skill_value: int = 50
 	return result_str
 
 
-@tool
-def san_check(current_san: int, san_loss: int) -> str:
+def process_san_check_result(d100: int, current_san: int, san_loss: int) -> tuple[str, int]:
 	"""
-	Perform a Sanity (SAN) check. Player rolls against current SAN value.
-	If they fail, they lose SAN equal to san_loss amount.
+	Process a SAN check result and return formatted result string and actual SAN loss.
 	
 	Args:
+		d100: The actual dice roll result (1-100)
 		current_san: The character's current Sanity value
-		san_loss: Amount of SAN to lose if the check fails (typically 1-5, can be more for major horrors)
+		san_loss: Amount of SAN to lose if the check fails
 	
 	Returns:
-		Result string describing the SAN check outcome and any SAN loss
+		Tuple of (formatted result string, actual SAN loss)
 	"""
-	d100 = random.randint(1, 100)
-	
 	# SAN check: roll under current SAN to succeed (avoid loss)
 	success = d100 <= current_san
 	
@@ -133,7 +130,46 @@ def san_check(current_san: int, san_loss: int) -> str:
 	else:
 		result_str += f"You maintain your composure. No SAN loss."
 	
-	return result_str
+	return result_str, actual_loss
+
+
+@tool
+def roll_dice(skill_name: str, difficulty: str = "normal", skill_value: int = 50) -> str:
+	"""
+	Request a skill check or attribute test. This tool returns a special marker
+	that tells the frontend to display a dice roll button. The actual dice roll
+	will be performed by the user on the frontend.
+	
+	Args:
+		skill_name: Name of the skill being tested (e.g., "Spot Hidden", "Dodge", "Strength")
+		difficulty: Difficulty level - "easy" (half value), "normal" (full value), "hard" (half value), "extreme" (fifth value)
+		skill_value: The character's skill or attribute value
+	
+	Returns:
+		Special marker string that triggers frontend dice roll UI
+	"""
+	# Return a special marker that the frontend will detect
+	# Format: [DICE_REQUEST:skill_name:difficulty:skill_value]
+	return f"[DICE_REQUEST:{skill_name}:{difficulty}:{skill_value}]"
+
+
+@tool
+def san_check(current_san: int, san_loss: int) -> str:
+	"""
+	Request a Sanity (SAN) check. This tool returns a special marker
+	that tells the frontend to display a dice roll button. The actual dice roll
+	will be performed by the user on the frontend.
+	
+	Args:
+		current_san: The character's current Sanity value
+		san_loss: Amount of SAN to lose if the check fails (typically 1-5, can be more for major horrors)
+	
+	Returns:
+		Special marker string that triggers frontend dice roll UI
+	"""
+	# Return a special marker that the frontend will detect
+	# Format: [SAN_CHECK_REQUEST:current_san:san_loss]
+	return f"[SAN_CHECK_REQUEST:{current_san}:{san_loss}]"
 
 
 @tool
@@ -291,6 +327,96 @@ def keeper_node(state: AgentState) -> AgentState:
 	api_key: str = state.get("api_key", "")
 	current_scene: str = state.get("current_scene", "arrival_village")
 	
+	# Check if the last user message contains a DiceResult
+	# Format: "DiceResult: 73" or "DiceResult: 73:skill_name:difficulty:skill_value" or "SANResult: 73:current_san:san_loss"
+	pending_dice_result = None
+	pending_san_result = None
+	san_loss_amount = 0
+	
+	if messages and isinstance(messages[-1], HumanMessage):
+		last_user_msg = messages[-1].content
+		
+		# Check for DiceResult pattern
+		dice_result_match = re.match(r'DiceResult:\s*(\d{1,3})(?::(.+?):(.+?):(\d+))?', last_user_msg, re.IGNORECASE)
+		if dice_result_match:
+			d100 = int(dice_result_match.group(1))
+			# If full parameters provided, use them; otherwise search backwards for the request
+			if dice_result_match.group(2):
+				skill_name = dice_result_match.group(2)
+				difficulty = dice_result_match.group(3)
+				skill_value = int(dice_result_match.group(4))
+			else:
+				# Search backwards for DICE_REQUEST marker
+				skill_name = "Unknown"
+				difficulty = "normal"
+				skill_value = 50
+				for msg in reversed(messages):
+					if isinstance(msg, ToolMessage):
+						content = msg.content
+						request_match = re.match(r'\[DICE_REQUEST:(.+?):(.+?):(\d+)\]', content)
+						if request_match:
+							skill_name = request_match.group(1)
+							difficulty = request_match.group(2)
+							skill_value = int(request_match.group(3))
+							break
+			
+			# Process the dice result
+			dice_result = process_dice_result(d100, skill_name, difficulty, skill_value)
+			print(f"    🎲 [DICE_RESULT] Processed result: {d100} for {skill_name} check")
+			
+			# Replace the user message with a formatted version
+			messages = messages[:-1] + [HumanMessage(content=f"Dice roll result: {d100}")]
+			
+			# Store for later use in response
+			pending_dice_result = dice_result
+			
+			# Update dice_results in state
+			dice_results = state.get("dice_results", []) + [{
+				"skill": skill_name,
+				"difficulty": difficulty,
+				"roll": d100,
+				"result": dice_result
+			}]
+			state = {**state, "dice_results": dice_results}
+		
+		# Check for SANResult pattern
+		san_result_match = re.match(r'SANResult:\s*(\d{1,3})(?::(\d+):(\d+))?', last_user_msg, re.IGNORECASE)
+		if san_result_match:
+			d100 = int(san_result_match.group(1))
+			# If full parameters provided, use them; otherwise search backwards for the request
+			if san_result_match.group(2):
+				current_san = int(san_result_match.group(2))
+				san_loss = int(san_result_match.group(3))
+			else:
+				# Search backwards for SAN_CHECK_REQUEST marker
+				current_san = character.get("san", 60)
+				san_loss = 1
+				for msg in reversed(messages):
+					if isinstance(msg, ToolMessage):
+						content = msg.content
+						request_match = re.match(r'\[SAN_CHECK_REQUEST:(\d+):(\d+)\]', content)
+						if request_match:
+							current_san = int(request_match.group(1))
+							san_loss = int(request_match.group(2))
+							break
+			
+			# Process the SAN check result
+			san_result, actual_loss = process_san_check_result(d100, current_san, san_loss)
+			print(f"    🧠 [SAN_RESULT] Processed result: {d100}, SAN loss: {actual_loss}")
+			
+			# Update character SAN
+			if actual_loss > 0:
+				new_san = max(0, current_san - actual_loss)
+				character = character.copy()
+				character["san"] = new_san
+			
+			# Replace the user message with a formatted version
+			messages = messages[:-1] + [HumanMessage(content=f"SAN check result: {d100}")]
+			
+			# Store for later use in response
+			pending_san_result = san_result
+			san_loss_amount = actual_loss
+	
 	# Fallback to environment variable if not provided in state
 	if not api_key:
 		api_key = os.getenv("OPENAI_API_KEY")
@@ -336,7 +462,7 @@ def keeper_node(state: AgentState) -> AgentState:
 	next_scene = current_scene
 	
 	# Process tool calls if any
-	san_loss_amount = 0
+	# Note: san_loss_amount may already be set from DiceResult processing above
 	
 	if response.tool_calls:
 		print(f"\n🔧 [TOOL CALLS] Detected {len(response.tool_calls)} tool call(s)")
@@ -347,25 +473,17 @@ def keeper_node(state: AgentState) -> AgentState:
 			print(f"  📌 [TOOL] {tool_name} called with args: {tool_args}")
 			
 			if tool_name == "roll_dice":
-				# Execute dice roll
+				# Request dice roll from frontend (returns special marker)
 				skill_name = tool_args.get("skill_name", "Unknown")
 				difficulty = tool_args.get("difficulty", "normal")
 				skill_value = tool_args.get("skill_value", 50)
-				print(f"    🎲 [ROLL_DICE] Skill: {skill_name}, Difficulty: {difficulty}, Value: {skill_value}")
-				dice_result = roll_dice.invoke(tool_args)
-				print(f"    🎲 [ROLL_DICE] Result: {dice_result[:150]}...")  # Print first 150 chars
+				print(f"    🎲 [ROLL_DICE] Requesting dice roll: Skill: {skill_name}, Difficulty: {difficulty}, Value: {skill_value}")
+				dice_request = roll_dice.invoke(tool_args)
+				print(f"    🎲 [ROLL_DICE] Request marker: {dice_request}")
 				
-				# Store dice result in state
-				dice_results = state.get("dice_results", [])
-				dice_results.append({
-					"skill": tool_args.get("skill_name", "Unknown"),
-					"difficulty": tool_args.get("difficulty", "normal"),
-					"result": dice_result
-				})
-				
-				# Add tool message to conversation
+				# Add tool message with the request marker (frontend will detect this)
 				tool_msg = ToolMessage(
-					content=dice_result,
+					content=dice_request,
 					tool_call_id=tool_call["id"]
 				)
 				new_messages.append(tool_msg)
@@ -373,33 +491,20 @@ def keeper_node(state: AgentState) -> AgentState:
 				next_action = "roll_dice"
 			
 			elif tool_name == "san_check":
-				# Execute SAN check
+				# Request SAN check from frontend (returns special marker)
 				current_san = character.get("san", 60)
 				san_loss = tool_args.get("san_loss", 1)
 				
-				print(f"    🧠 [SAN_CHECK] Current SAN: {current_san}, SAN Loss: {san_loss}")
-				san_result = san_check.invoke({
+				print(f"    🧠 [SAN_CHECK] Requesting SAN check: Current SAN: {current_san}, SAN Loss: {san_loss}")
+				san_request = san_check.invoke({
 					"current_san": current_san,
 					"san_loss": san_loss
 				})
-				print(f"    🧠 [SAN_CHECK] Result: {san_result[:150]}...")  # Print first 150 chars
+				print(f"    🧠 [SAN_CHECK] Request marker: {san_request}")
 				
-				# Calculate actual SAN loss from result
-				# Parse the result to get actual loss
-				# Look for "lose X SAN" pattern
-				loss_pattern = r'lose\s+(\d+)\s+SAN'
-				match = re.search(loss_pattern, san_result, re.IGNORECASE)
-				if match:
-					san_loss_amount = int(match.group(1))
-					
-					# Update character SAN
-					new_san = max(0, current_san - san_loss_amount)
-					character = character.copy()  # Create a copy to avoid mutating original
-					character["san"] = new_san
-				
-				# Add tool message to conversation
+				# Add tool message with the request marker (frontend will detect this)
 				tool_msg = ToolMessage(
-					content=san_result,
+					content=san_request,
 					tool_call_id=tool_call["id"]
 				)
 				new_messages.append(tool_msg)
@@ -444,13 +549,29 @@ def keeper_node(state: AgentState) -> AgentState:
 	
 	# Get final response after tool calls
 	if response.tool_calls:
-		# Re-invoke to get response after tool execution
-		# If scene was changed via change_scene tool, system_msg already updated with new scene info
-		# Otherwise use original system_msg
-		print(f"\n🔄 [LLM RE-INVOKE] Getting final response after tool execution (scene: {current_scene})")
-		final_response = llm.invoke([system_msg] + new_messages)
-		new_messages.append(final_response)
-		print(f"✅ [FINAL RESPONSE] Generated final response")
+		# Check if we only have dice/SAN check requests (no need to re-invoke LLM)
+		only_dice_requests = True
+		for tool_call in response.tool_calls:
+			tool_name = tool_call["name"]
+			if tool_name not in ["roll_dice", "san_check"]:
+				only_dice_requests = False
+				break
+		
+		if only_dice_requests:
+			# For dice/SAN check requests, don't generate additional response
+			# The tool message with the request marker is enough
+			# Create a minimal response that will be replaced by the request marker
+			print(f"\n🎲 [DICE/SAN REQUEST] Skipping LLM re-invoke for dice/SAN check request")
+			final_response = AIMessage(content="")  # Empty content, frontend will detect the marker
+			new_messages.append(final_response)
+		else:
+			# Re-invoke to get response after tool execution
+			# If scene was changed via change_scene tool, system_msg already updated with new scene info
+			# Otherwise use original system_msg
+			print(f"\n🔄 [LLM RE-INVOKE] Getting final response after tool execution (scene: {current_scene})")
+			final_response = llm.invoke([system_msg] + new_messages)
+			new_messages.append(final_response)
+			print(f"✅ [FINAL RESPONSE] Generated final response")
 
 	return {
 		"messages": new_messages,
@@ -459,7 +580,9 @@ def keeper_node(state: AgentState) -> AgentState:
 		"next_action": next_action,
 		"next_scene": next_scene,
 		"dice_results": state.get("dice_results", []),
-		"san_loss": san_loss_amount
+		"san_loss": san_loss_amount,
+		"pending_dice_result": pending_dice_result,
+		"pending_san_result": pending_san_result
 	}
 
 
@@ -608,103 +731,59 @@ def get_kp_response(
 	print(f"    Next action: {result.get('next_action', 'N/A')}")
 	
 	# Extract the last assistant message(s)
-	messages = result["messages"]
+	messages = result.get("messages", [])
 	
 	# Extract the final assistant response
 	final_response = "I'm not sure how to respond to that."
 	
 	# Look backwards for the final assistant message (after tool execution if any)
 	for msg in reversed(messages):
-		if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
-			final_response = msg.content
-			break
-		elif isinstance(msg, AIMessage) and msg.content:
-			# Even if it has tool_calls, use it as fallback
-			final_response = msg.content
-			break
+		if isinstance(msg, AIMessage):
+			# Check if content exists and is a string
+			if msg.content and isinstance(msg.content, str) and msg.content.strip():
+				if not msg.tool_calls:
+					final_response = msg.content
+					break
+				else:
+					# Even if it has tool_calls, use it as fallback
+					final_response = msg.content
+					break
 	
-	# Extract tool results (dice rolls and SAN checks) from ToolMessages and format them
-	tool_results_text = ""
-	for msg in messages:
-		if isinstance(msg, ToolMessage):
-			# Parse the tool result from tool message
-			content = msg.content.strip()
-			
-			# Check if it's a SAN check
-			if "Sanity Check" in content or "[Sanity Check]" in content:
-				# Format SAN check result
-				lines = content.split("\n")
-				sanity_check = ""
-				roll_info = ""
-				result_info = ""
-				outcome = ""
-				
-				for line in lines:
-					line = line.strip()
-					if not line:
-						continue
-					if "Sanity Check" in line or line.startswith("[Sanity"):
-						sanity_check = line
-					elif line.startswith("Roll:"):
-						roll_info = line
-					elif line.startswith("Result:"):
-						result_info = line
-					elif ("lose" in line.lower() or "maintain" in line.lower() or "composure" in line.lower()) and not outcome:
-						outcome = line
-				
-				# Format SAN check result nicely
-				if sanity_check or roll_info or result_info:
-					if tool_results_text:  # If multiple tool results, add separator
-						tool_results_text += "\n"
-					tool_results_text += "**🎲 Sanity Check Result**\n"
-					if sanity_check:
-						tool_results_text += f"{sanity_check}\n"
-					if roll_info:
-						tool_results_text += f"{roll_info}\n"
-					if result_info:
-						tool_results_text += f"{result_info}\n"
-					if outcome:
-						tool_results_text += f"{outcome}\n"
-			
-			# Check if it's a regular dice roll
-			elif "Check" in content and "Roll:" in content:
-				# Extract the key information from dice result
-				lines = content.split("\n")
-				skill_check = ""
-				roll_info = ""
-				result_info = ""
-				outcome = ""
-				
-				for line in lines:
-					line = line.strip()
-					if not line:
-						continue
-					if "Check -" in line or line.startswith("["):
-						skill_check = line
-					elif line.startswith("Roll:"):
-						roll_info = line
-					elif line.startswith("Result:"):
-						result_info = line
-					elif ("succeed" in line.lower() or "fail" in line.lower()) and not outcome:
-						outcome = line
-				
-				# Format dice result nicely
-				if skill_check or roll_info or result_info:
-					if tool_results_text:  # If multiple tool results, add separator
-						tool_results_text += "\n"
-					tool_results_text += "**🎲 Dice Roll Result**\n"
-					if skill_check:
-						tool_results_text += f"{skill_check}\n"
-					if roll_info:
-						tool_results_text += f"{roll_info}\n"
-					if result_info:
-						tool_results_text += f"{result_info}\n"
-					if outcome:
-						tool_results_text += f"{outcome}\n"
+	# Check for pending results from state first (these are from user dice rolls)
+	# If we have pending results, user has already rolled dice, so we should show results
+	pending_dice_result = result.get("pending_dice_result")
+	pending_san_result = result.get("pending_san_result")
 	
-	# Combine: tool results (dice/SAN checks) first, then Keeper response
-	if tool_results_text:
-		final_response = tool_results_text + "\n---\n\n" + final_response
+	dice_request_found = False
+	san_request_found = False
+	
+	if pending_dice_result or pending_san_result:
+		# User has rolled dice, show the result and LLM response
+		tool_results_text = pending_dice_result or pending_san_result
+		if tool_results_text:
+			final_response = tool_results_text + "\n---\n\n" + final_response
+	else:
+		# No pending results, check for dice/SAN check request markers
+		# If found, return only the marker (no LLM response yet)
+		for msg in messages:
+			if isinstance(msg, ToolMessage):
+				content = msg.content.strip()
+				
+				# Check for dice request marker
+				dice_request_match = re.match(r'\[DICE_REQUEST:(.+?):(.+?):(\d+)\]', content)
+				if dice_request_match:
+					# Found dice request - return only the marker, skip LLM response
+					final_response = content
+					dice_request_found = True
+					break
+				
+				# Check for SAN check request marker
+				san_request_match = re.match(r'\[SAN_CHECK_REQUEST:(\d+):(\d+)\]', content)
+				if san_request_match:
+					# Found SAN check request - return only the marker, skip LLM response
+					final_response = content
+					san_request_found = True
+					break
 	
 	# Get updated character from result (with SAN changes if any)
 	updated_character = result.get("character", character)
