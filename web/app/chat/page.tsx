@@ -13,12 +13,14 @@ const TypewriterText = ({
   onComplete,
   className = "",
   speed = 25,
+  style,
 }: {
   text: string;
   active: boolean;
   onComplete?: () => void;
   className?: string;
   speed?: number;
+  style?: React.CSSProperties;
 }) => {
   const [displayed, setDisplayed] = useState(active ? "" : text);
   const [isComplete, setIsComplete] = useState(!active);
@@ -47,7 +49,7 @@ const TypewriterText = ({
   }, [text, active, speed, onComplete]);
 
   return (
-    <div className={`typewriter-text ${className}`}>
+    <div className={`typewriter-text ${className}`} style={style}>
       <span className="whitespace-pre-wrap">{displayed}</span>
       {active && !isComplete && (
         <span className="typewriter-caret ml-1" />
@@ -56,7 +58,7 @@ const TypewriterText = ({
   );
 };
 
-const MarkdownText = ({ text, className = "" }: { text: string; className?: string }) => {
+const MarkdownText = ({ text, className = "", style }: { text: string; className?: string; style?: React.CSSProperties }) => {
   const toHtml = (md: string) => {
     let html = md
       .replace(/&/g, "&amp;")
@@ -76,6 +78,7 @@ const MarkdownText = ({ text, className = "" }: { text: string; className?: stri
   return (
     <div
       className={className}
+      style={style}
       dangerouslySetInnerHTML={{ __html: toHtml(text) }}
     />
   );
@@ -359,11 +362,11 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="parchment-page flex min-h-screen text-slate-900 relative">
+    <div className="flex min-h-screen text-slate-900 relative">
        {showSidebar && (
-         <aside className="w-80 border-r border-amber-900/30 bg-black/15 backdrop-blur-sm p-6 space-y-6 overflow-y-auto sticky top-0 h-screen self-start">
-           <div className="bg-black/25 border border-amber-900/40 rounded-xl p-4 space-y-4 shadow-[0_10px_30px_rgba(0,0,0,0.45)]">
-            <h3 className="text-lg font-semibold text-slate-200">Character</h3>
+         <aside className="w-80 border-r border-amber-900/40 bg-gradient-to-b from-amber-950/95 via-amber-900/90 to-amber-950/95 backdrop-blur-sm p-6 space-y-6 overflow-y-auto sticky top-0 h-screen self-start shadow-[4px_0_20px_rgba(0,0,0,0.3)]">
+           <div className="bg-amber-900/40 border border-amber-800/50 rounded-xl p-4 space-y-4 shadow-[0_10px_30px_rgba(0,0,0,0.45)] backdrop-blur-sm">
+            <h3 className="text-lg font-semibold text-amber-100">Character</h3>
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-amber-700/50 shadow-lg shadow-amber-900/20 flex items-center justify-center bg-slate-900">
                 {character.avatar?.startsWith("data:image") ? (
@@ -377,8 +380,8 @@ export default function ChatPage() {
                 )}
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-slate-100">{character.name}</p>
-                <div className="mt-2 space-y-1 text-xs text-slate-400">
+                <p className="font-semibold text-amber-100">{character.name}</p>
+                <div className="mt-2 space-y-1 text-xs text-amber-200/80">
                   <div className="flex gap-3">
                     <span>STR {character.str}</span>
                     <span>INT {character.int}</span>
@@ -393,9 +396,9 @@ export default function ChatPage() {
             </div>
           </div>
 
-          <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
-            <h3 className="text-lg font-semibold text-slate-200 mb-2">Current Scene</h3>
-            <p className="text-sm text-amber-300 font-mono bg-slate-900/50 px-3 py-2 rounded-lg border border-amber-900/50">
+          <div className="bg-amber-900/40 border border-amber-800/50 rounded-xl p-4 backdrop-blur-sm">
+            <h3 className="text-lg font-semibold text-amber-100 mb-2">Current Scene</h3>
+            <p className="text-sm text-amber-200 font-mono bg-amber-950/60 px-3 py-2 rounded-lg border border-amber-800/60">
               {currentScene}
             </p>
           </div>
@@ -403,39 +406,44 @@ export default function ChatPage() {
           <div className="space-y-2">
             <button
               onClick={handleDownloadLog}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-blue-600/80 hover:bg-blue-600 border border-blue-500/50 py-3 transition-all shadow-lg shadow-blue-900/20 hover:shadow-blue-900/30 font-medium"
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-amber-50/90 hover:bg-amber-100/95 border-2 border-amber-800/60 hover:border-amber-700/80 py-3 transition-all shadow-md shadow-amber-900/20 hover:shadow-lg hover:shadow-amber-900/30 font-medium text-amber-950 hover:text-amber-900"
             >
               <Download className="w-4 h-4" />
               Download Log
             </button>
             <button
               onClick={handleRestart}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-orange-600/80 hover:bg-orange-600 border border-orange-500/50 py-3 transition-all shadow-lg shadow-orange-900/20 hover:shadow-orange-900/30 font-medium"
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-amber-100/90 hover:bg-amber-150/95 border-2 border-amber-900/60 hover:border-amber-800/80 py-3 transition-all shadow-md shadow-amber-900/20 hover:shadow-lg hover:shadow-amber-900/30 font-medium text-amber-950 hover:text-amber-900"
             >
               <RotateCcw className="w-4 h-4" />
               Restart Conversation
             </button>
-            <button
-              onClick={() => {
-                setTestRoll(null);
-                setDiceNotation("1d100");
-                setShowDiceOverlay(true);
-              }}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-600/80 hover:bg-amber-600 border border-amber-500/60 py-2 transition-all shadow-lg shadow-amber-900/20 hover:shadow-amber-900/30 font-medium text-slate-950"
-            >
-              Test Roll d10
-            </button>
-            {testRoll !== null && (
-              <p className="text-xs text-amber-200/90 text-center">
-                Last d10 roll: <span className="font-semibold">{testRoll}</span>
-              </p>
+            {/* Test Roll button hidden */}
+            {false && (
+              <>
+                <button
+                  onClick={() => {
+                    setTestRoll(null);
+                    setDiceNotation("1d100");
+                    setShowDiceOverlay(true);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-600/80 hover:bg-amber-600 border border-amber-500/60 py-2 transition-all shadow-lg shadow-amber-900/20 hover:shadow-amber-900/30 font-medium text-slate-950"
+                >
+                  Test Roll d10
+                </button>
+                {testRoll !== null && (
+                  <p className="text-xs text-amber-200/90 text-center">
+                    Last d10 roll: <span className="font-semibold">{testRoll}</span>
+                  </p>
+                )}
+              </>
             )}
           </div>
         </aside>
       )}
 
       <main className="flex-1 flex flex-col">
-        <header className="flex flex-wrap gap-4 items-center justify-between border-b border-amber-900/30 bg-black/10 backdrop-blur-sm px-6 py-4">
+        <header className="flex flex-wrap gap-4 items-center justify-between border-b border-amber-900/40 bg-gradient-to-r from-amber-950/95 via-amber-900/90 to-amber-950/95 backdrop-blur-sm px-6 py-4 relative z-10 shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
           <div>
             <h1 className="text-2xl font-bold bg-gradient-to-r from-amber-200 to-amber-400 bg-clip-text text-transparent">
               Keeper Chat
@@ -445,18 +453,18 @@ export default function ChatPage() {
             </p>
           </div>
           <div className="flex-1 flex flex-wrap items-center justify-end gap-3">
-            <div className="hidden sm:flex items-center gap-2 bg-slate-900/70 border border-slate-700/60 rounded-xl px-3 py-2 backdrop-blur-sm shadow-inner shadow-black/20 min-w-[220px]">
+            <div className="hidden sm:flex items-center gap-2 bg-amber-950/60 border border-amber-800/50 rounded-xl px-3 py-2 backdrop-blur-sm shadow-inner shadow-black/20 min-w-[220px]">
               <input
                 type={apiKeyVisible ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="OpenAI API Key"
-                className="bg-transparent flex-1 outline-none text-sm text-slate-200 placeholder:text-slate-500"
+                className="bg-transparent flex-1 outline-none text-sm text-amber-100 placeholder:text-amber-400/60"
               />
               <button
                 type="button"
                 onClick={() => setApiKeyVisible((prev) => !prev)}
-                className="text-slate-400 hover:text-amber-300 transition-colors"
+                className="text-amber-300/70 hover:text-amber-200 transition-colors"
                 title={apiKeyVisible ? "Hide API Key" : "Show API Key"}
               >
                 {apiKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -464,20 +472,20 @@ export default function ChatPage() {
             </div>
             <button
               onClick={() => setShowSidebar((prev) => !prev)}
-              className="rounded-xl border border-slate-700/50 px-4 py-2 hover:bg-slate-800/50 transition-all backdrop-blur-sm"
+              className="rounded-xl border border-amber-800/50 px-4 py-2 hover:bg-amber-900/40 transition-all backdrop-blur-sm text-amber-200 hover:text-amber-100"
             >
               <Settings className="w-5 h-5" />
             </button>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 md:px-8 py-8 space-y-6">
+        <div className="parchment-page flex-1 overflow-y-auto px-4 md:px-8 py-8 space-y-6">
           {messages.map((msg, index) => {
             const isUser = msg.role === "user";
             const hasMarkdown = msg.content.includes("**") || msg.content.includes("*") || msg.content.includes("\n");
             return (
               <div key={index} className="w-full max-w-4xl mx-auto space-y-1">
-                <div className="flex items-center justify-between text-[11px] tracking-[0.3em] text-amber-900/70 uppercase">
+                <div className="flex items-center justify-between text-[13px] tracking-[0.3em] text-amber-900/70 uppercase">
                   <span>{isUser ? "Investigator" : "Keeper"}</span>
                   <span className="text-slate-500">
                     Entry {index + 1 < 10 ? `0${index + 1}` : index + 1}
@@ -488,24 +496,26 @@ export default function ChatPage() {
                     hasMarkdown ? (
                       <MarkdownText
                         text={msg.content}
-                        className="leading-relaxed text-[15px] font-serif text-slate-900"
+                        className="leading-relaxed text-[18px] font-serif text-slate-900"
                       />
                     ) : (
-                      <div className="whitespace-pre-wrap leading-relaxed text-[15px] font-serif text-slate-900">
+                      <div className="whitespace-pre-wrap leading-relaxed text-[18px] font-serif text-slate-900">
                         {msg.content}
                       </div>
                     )
                   ) : hasMarkdown ? (
                     <MarkdownText
                       text={msg.content}
-                      className="leading-relaxed text-[15px] text-slate-900"
+                      className="leading-relaxed text-[18px] text-amber-950 font-mono"
+                      style={{ textShadow: "1px 1px 2px rgba(0, 0, 0, 0.2), 0 0 4px rgba(120, 53, 15, 0.15)" }}
                     />
                   ) : (
                     <TypewriterText
                       text={msg.content}
                       active={!typedMessagesRef.current.has(index)}
                       onComplete={() => typedMessagesRef.current.add(index)}
-                      className="leading-relaxed text-[15px] text-slate-900"
+                      className="leading-relaxed text-[18px] text-amber-950 font-mono"
+                      style={{ textShadow: "1px 1px 2px rgba(0, 0, 0, 0.2), 0 0 4px rgba(120, 53, 15, 0.15)" }}
                     />
                   )}
                 </div>
@@ -514,7 +524,7 @@ export default function ChatPage() {
           })}
           {loading && (
             <div className="w-full max-w-4xl mx-auto space-y-1">
-              <div className="flex items-center justify-between text-[11px] tracking-[0.3em] text-amber-900/70 uppercase">
+              <div className="flex items-center justify-between text-[13px] tracking-[0.3em] text-amber-900/70 uppercase">
                 <span>Keeper</span>
                 <span className="text-slate-500">Entry ...</span>
               </div>
@@ -524,7 +534,7 @@ export default function ChatPage() {
                   <div className="w-2 h-2 bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                   <div className="w-2 h-2 bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
                 </div>
-                <span className="text-sm">Keeper is composing the next entry...</span>
+                <span className="text-base">Keeper is composing the next entry...</span>
               </div>
             </div>
           )}
@@ -582,7 +592,7 @@ export default function ChatPage() {
               }}
               rows={5}
               placeholder="Describe your action as if writing a journal entry on worn parchment..."
-              className="w-full bg-transparent border border-amber-900/40 rounded-xl px-4 py-3 text-[15px] font-serif text-slate-900 placeholder:text-amber-900/60 focus:border-amber-700 focus:ring-2 focus:ring-amber-600/40 outline-none transition-all resize-none"
+              className="w-full bg-transparent border border-amber-900/40 rounded-xl px-4 py-3 text-[18px] font-serif text-slate-900 placeholder:text-amber-900/60 focus:border-amber-700 focus:ring-2 focus:ring-amber-600/40 outline-none transition-all resize-none"
             />
             <div className="flex items-center justify-between">
               <p className="text-xs text-amber-900/80">Long entries encouraged—paint the scene.</p>
