@@ -6,6 +6,7 @@ export interface KPResponse {
   response: string;
   current_scene: string;
   character?: Character;
+  compressed_history?: Message[];
 }
 
 export async function getKPResponse(

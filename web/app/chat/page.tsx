@@ -162,6 +162,32 @@ export default function ChatPage() {
     }
   }, [messages]);
 
+  // Helper function to check if a message is a summary/memory trace
+  const isSummaryMessage = (msg: { role: string; content: string }) => {
+    if (msg.role !== "assistant") return false;
+    const content = msg.content || "";
+    // Check for summary marker - handle various formatting
+    return (
+      content.startsWith("**Summary of earlier events:**") ||
+      content.includes("**Summary of earlier events:**") ||
+      content.trim().startsWith("**Summary of earlier events:**")
+    );
+  };
+
+  // Extract summary messages (memory traces) from messages
+  const getMemoryTraces = () => {
+    return messages.filter(isSummaryMessage);
+  };
+
+  const memoryTraces = getMemoryTraces();
+
+  // Debug: Log memory traces when they change
+  useEffect(() => {
+    if (memoryTraces.length > 0) {
+      console.log("Memory traces found:", memoryTraces.length, memoryTraces);
+    }
+  }, [memoryTraces]);
+
   if (!character) {
     return null;
   }
@@ -183,6 +209,12 @@ export default function ChatPage() {
       );
 
       const assistantText = response.response;
+
+      // Handle compressed history first if provided (memory compression occurred)
+      // This replaces the messages array with the compressed version
+      if (response.compressed_history) {
+        setMessages(response.compressed_history);
+      }
 
       // Detect dice request markers: [DICE_REQUEST:skill_name:difficulty:skill_value]
       const diceRequestMatch = assistantText.match(/\[DICE_REQUEST:(.+?):(.+?):(\d+)\]/);
@@ -311,6 +343,11 @@ export default function ChatPage() {
 
       const assistantText = response.response;
       
+      // Handle compressed history first if provided (memory compression occurred)
+      if (response.compressed_history) {
+        setMessages(response.compressed_history);
+      }
+      
       // Check for new dice requests in the response
       const diceRequestMatch = assistantText.match(/\[DICE_REQUEST:(.+?):(.+?):(\d+)\]/);
       if (diceRequestMatch) {
@@ -400,6 +437,38 @@ export default function ChatPage() {
             </p>
           </div>
 
+          <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 space-y-3">
+            <h3 className="text-lg font-semibold text-slate-200 mb-2">Memory Trace</h3>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {
+                memoryTraces.map((trace, idx) => {
+                  // Extract the summary content (remove the "**Summary of earlier events:**" prefix)
+                  const summaryContent = trace.content.replace(
+                    /^\*\*Summary of earlier events:\*\*\s*\n*/,
+                    ""
+                  ).trim();
+                  return (
+                    <div
+                      key={idx}
+                      className="bg-slate-900/60 border border-amber-900/30 rounded-lg p-3 text-xs text-slate-300 space-y-1"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-amber-400/80 font-semibold text-[10px] uppercase tracking-wider">
+                          Key Events
+                        </span>
+                        <span className="text-slate-500 text-[10px]">
+                          #{memoryTraces.length - idx}
+                        </span>
+                      </div>
+                      <div className="text-slate-300 leading-relaxed whitespace-pre-wrap">
+                        {summaryContent}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+          
           <div className="space-y-2">
             <button
               onClick={handleDownloadLog}
@@ -435,7 +504,7 @@ export default function ChatPage() {
       )}
 
       <main className="flex-1 flex flex-col">
-        <header className="flex flex-wrap gap-4 items-center justify-between border-b border-amber-900/30 bg-black/10 backdrop-blur-sm px-6 py-4">
+        <header className="sticky top-0 z-50 flex flex-wrap gap-4 items-center justify-between border-b border-amber-900/30 bg-black/10 backdrop-blur-sm px-6 py-4">
           <div>
             <h1 className="text-2xl font-bold bg-gradient-to-r from-amber-200 to-amber-400 bg-clip-text text-transparent">
               Keeper Chat
@@ -472,46 +541,53 @@ export default function ChatPage() {
         </header>
 
         <div className="flex-1 overflow-y-auto px-4 md:px-8 py-8 space-y-6">
-          {messages.map((msg, index) => {
-            const isUser = msg.role === "user";
-            const hasMarkdown = msg.content.includes("**") || msg.content.includes("*") || msg.content.includes("\n");
-            return (
-              <div key={index} className="w-full max-w-4xl mx-auto space-y-1">
-                <div className="flex items-center justify-between text-[11px] tracking-[0.3em] text-amber-900/70 uppercase">
-                  <span>{isUser ? "Investigator" : "Keeper"}</span>
-                  <span className="text-slate-500">
-                    Entry {index + 1 < 10 ? `0${index + 1}` : index + 1}
-                  </span>
-                </div>
-                <div className="px-1">
-                  {isUser ? (
-                    hasMarkdown ? (
+          {messages
+            .filter((msg) => {
+              // Filter out summary messages from main chat (they're shown in sidebar)
+              return !isSummaryMessage(msg);
+            })
+            .map((msg, index) => {
+              // Recalculate index after filtering
+              const originalIndex = messages.indexOf(msg);
+              const isUser = msg.role === "user";
+              const hasMarkdown = msg.content.includes("**") || msg.content.includes("*") || msg.content.includes("\n");
+              return (
+                <div key={originalIndex} className="w-full max-w-4xl mx-auto space-y-1">
+                  <div className="flex items-center justify-between text-[11px] tracking-[0.3em] text-amber-900/70 uppercase">
+                    <span>{isUser ? "Investigator" : "Keeper"}</span>
+                    <span className="text-slate-500">
+                      Entry {originalIndex + 1 < 10 ? `0${originalIndex + 1}` : originalIndex + 1}
+                    </span>
+                  </div>
+                  <div className="px-1">
+                    {isUser ? (
+                      hasMarkdown ? (
+                        <MarkdownText
+                          text={msg.content}
+                          className="leading-relaxed text-[15px] font-serif text-slate-900"
+                        />
+                      ) : (
+                        <div className="whitespace-pre-wrap leading-relaxed text-[15px] font-serif text-slate-900">
+                          {msg.content}
+                        </div>
+                      )
+                    ) : hasMarkdown ? (
                       <MarkdownText
                         text={msg.content}
-                        className="leading-relaxed text-[15px] font-serif text-slate-900"
+                        className="leading-relaxed text-[15px] text-slate-900"
                       />
                     ) : (
-                      <div className="whitespace-pre-wrap leading-relaxed text-[15px] font-serif text-slate-900">
-                        {msg.content}
-                      </div>
-                    )
-                  ) : hasMarkdown ? (
-                    <MarkdownText
-                      text={msg.content}
-                      className="leading-relaxed text-[15px] text-slate-900"
-                    />
-                  ) : (
-                    <TypewriterText
-                      text={msg.content}
-                      active={!typedMessagesRef.current.has(index)}
-                      onComplete={() => typedMessagesRef.current.add(index)}
-                      className="leading-relaxed text-[15px] text-slate-900"
-                    />
-                  )}
+                      <TypewriterText
+                        text={msg.content}
+                        active={!typedMessagesRef.current.has(originalIndex)}
+                        onComplete={() => typedMessagesRef.current.add(originalIndex)}
+                        className="leading-relaxed text-[15px] text-slate-900"
+                      />
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           {loading && (
             <div className="w-full max-w-4xl mx-auto space-y-1">
               <div className="flex items-center justify-between text-[11px] tracking-[0.3em] text-amber-900/70 uppercase">
